@@ -1,0 +1,47 @@
+\begin{thebibliography}{6}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi:\discretionary{}{}{}#1}\else
+  \providecommand{\doi}{doi:\discretionary{}{}{}\begingroup
+  \urlstyle{rm}\Url}\fi
+
+\bibitem[{Diaz \& Swaab(2007)}]{diaz2007}
+Diaz, Michele~T \& Tamara~Y Swaab. 2007.
+\newblock Electrophysiological differentiation of phonological and semantic
+  integration in word and sentence contexts.
+\newblock \emph{Brain research} 1146. 85--100.
+
+\bibitem[{Dikker \& Pylkkanen(2011)}]{dikker2011}
+Dikker, Suzanne \& Liina Pylkkanen. 2011.
+\newblock Before the n400: Effects of lexical--semantic violations in visual
+  cortex.
+\newblock \emph{Brain and Language} 118(1-2). 23--28.
+
+\bibitem[{Groppe et~al.(2010)Groppe, Choi, Huang, Schilz, Topkins, Urbach \&
+  Kutas}]{groppe2010}
+Groppe, David~M, Marvin Choi, Tiffany Huang, Joseph Schilz, Ben Topkins,
+  Thomas~P Urbach \& Marta Kutas. 2010.
+\newblock The phonemic restoration effect reveals pre-n400 effect of supportive
+  sentence context in speech perception.
+\newblock \emph{Brain research} 1361. 54--66.
+
+\bibitem[{Kutas \& Hillyard(1980)}]{kutas1980}
+Kutas, Marta \& Steven~A Hillyard. 1980.
+\newblock Reading senseless sentences: Brain potentials reflect semantic
+  incongruity.
+\newblock \emph{Science} 207(4427). 203--205.
+
+\bibitem[{McClelland \& Elman(1986)}]{mcclelland1986}
+McClelland, James~L \& Jeffrey~L Elman. 1986.
+\newblock The trace model of speech perception.
+\newblock \emph{Cognitive psychology} 18(1). 1--86.
+
+\bibitem[{McQueen et~al.(2009)McQueen, Jesse \& Norris}]{mcqueen2009}
+McQueen, James~M, Alexandra Jesse \& Dennis Norris. 2009.
+\newblock No lexical--prelexical feedback during speech perception or: Is it
+  time to stop playing those christmas tapes?
+\newblock \emph{Journal of Memory and Language} 61(1). 1--18.
+
+\end{thebibliography}
