@@ -1,0 +1,341 @@
+---
+title: "ERP_exploration"
+author: "Massimiliano Canzi"
+date: "27/03/2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+lots of packages to load.
+
+```{r, include=FALSE}
+#install.packages("tidyverse")
+#install.packages("Hmisc")
+#install.packages("IDPmisc") 
+#install.packages("effects")
+#install.packages("itsadug")
+#install.packages("lme4")
+#install.packages("mgcv")
+#install.packages("akima")
+#install.packages("viridis")
+#install.packages("magick")
+#install.packages("animation")
+#install.packages("ERP")
+#install.packages("plyr")
+#library(plyr)
+#install.packages("cowplot")
+library(cowplot)
+library(devtools)
+library(tidyverse)
+library(ERP)
+library(animation)
+library(magick)
+library(viridis)
+library(akima)
+library(scales)
+library(gridExtra)
+library(grid)
+library(effects)
+library(itsadug)
+library(lme4)
+library(mgcv)
+library(reshape2)
+library(Hmisc)
+library(IDPmisc)
+```
+
+importing and merging the two .csv files containing ERP data. 
+62 channels, 2048Hz information for 21 participants.
+
+```{r, warnings=FALSE}
+ERP <- rbind(read.csv("ERP_pt1.csv"), read.csv("ERP_pt2.csv")) %>% 
+  filter_if(~is.numeric(.), all_vars(!is.infinite(.)))
+ERP <- ERP[(ERP$time >= -100) & (ERP$time <= 500),]
+ERP <- gather(ERP, electrode, amplitude, Fp1:PO4, factor_key=TRUE) 
+ERP$time <- format(round(ERP$time, 0), nsmall = 0) 
+ERP$time <- as.numeric(as.character(ERP$time))
+names(ERP) <- c("subject", "condition", "time", "electrode", "amplitude")
+```
+
+Merging electrode location data with ERP dataset. 
+More formatting, creating difference waves. 
+
+```{r}
+electrodeLocs <- read_delim("https://raw.githubusercontent.com/craddm/ExploringERPs/master/biosemi70elecs.loc", "\t",
+  escape_double = FALSE,
+  col_names = c("chanNo","theta","radius", "electrode"),
+  trim_ws = TRUE)
+ERP$electrode <- as.factor(ERP$electrode)
+ERP$subject <- as.factor(ERP$subject)
+
+electrodeLocs$radianTheta <- pi/180*electrodeLocs$theta
+electrodeLocs <- electrodeLocs %>%
+  mutate(x = .$radius*sin(.$radianTheta),
+         y = .$radius*cos(.$radianTheta))
+
+ERP$time <- as.factor(ERP$time)
+ERP <- ERP %>% group_by(subject, condition, electrode, time) %>% 
+  summarise(amplitude.mean=mean(amplitude),) %>% ungroup # thanks Pat! 
+ERP$time <- as.numeric(as.character(ERP$time))
+
+ERP_SM <- ERP
+ERP_testing <- filter(ERP, time %% 2 == 0)
+#ERP <- filter(ERP, time %% 25 == 0) 
+
+ERP_control <- filter(ERP, condition == "control")
+ERP_target <- filter(ERP, condition == "target")
+x <- length(ERP_control$time)
+condition <- vector(,x)
+difference <- ERP_target$amplitude.mean - ERP_control$amplitude.mean
+ERP_diff <- data.frame(ERP_control$subject) %>% 
+  cbind(condition = "difference") %>% 
+  cbind(ERP_control$time, ERP_control$electrode) %>% 
+  cbind(difference)
+
+names(ERP_diff) <- c("subject", "condition", "time", "electrode", "amplitude.mean")
+ERP <- rbind(ERP, ERP_diff)
+
+ERP <- ERP %>% left_join(electrodeLocs, by = "electrode")
+ERP_SM <- ERP_SM %>% left_join(electrodeLocs, by = "electrode")
+
+ERP_col = c("#180F3EFF", "#CD4071FF")
+```
+
+theme for topographic map
+
+```{r}
+theme_topo <- function(base_size = 12)
+  {theme_bw(base_size = base_size) %+replace% theme(rect = element_blank(), line = element_blank(), axis.text = element_blank(), axis.title = element_blank())}
+
+circleFun <- function(center = c(0,0),diameter = 1, npoints = 100) {
+  r = diameter / 2
+  tt <- seq(0,2*pi,length.out = npoints)
+  xx <- center[1] + r * cos(tt)
+  yy <- center[2] + r * sin(tt)
+  return(data.frame(x = xx, y = yy)) }
+
+headShape <- circleFun(c(0, 0), round(max(electrodeLocs$x)), npoints = 100) # 0
+nose <- data.frame(x = c(-0.075,0,.075),y=c(.495,.575,.495))
+```
+
+data subsets for different planes. 
+
+```{r}
+ERP_Cextr <- filter(ERP, electrode %in% c("T7", "T8") & condition != "difference")
+ERP_C <- filter(ERP, electrode %in% c("Cz", "C1", "C2", "C3", "C4", "C5", "C6") & condition != "difference")
+ERP_Cdiff <- filter(ERP, electrode %in% c("Cz", "C1", "C2", "C3", "C4", "C5", "C6") & condition != "difference")
+ERP_FC <- filter(ERP, electrode %in% c("FCz", "FC1", "FC2", "FC3", "FC4", "FC5", "FC6") & condition != "difference")
+ERP_FCdiff <- filter(ERP, electrode %in% c("FCz", "FC1", "FC2", "FC3", "FC4", "FC5", "FC6") & condition != "difference")
+ERP_AF <- filter(ERP, electrode %in% c("AFz", "AF3", "AF4", "AF7", "AF8") & condition != "difference")
+ERP_AFdiff <- filter(ERP, electrode %in% c("AFz", "AF3", "AF4", "AF7", "AF8") & condition != "difference")
+```
+
+plotting functions. all plots in slides are done with grand_average_electrode. Change electrode in function depending on your choice. You can also decide whether to plot control/target, difference waves or all three by changing condition != / == ....
+
+in grand_average_electrode uncomment the stat_summary line and comment geom_smooth() to remove smooth function and plot average instead. It's better to reduce sampling rate before plotting the average rather than the smooth. 
+
+you can do that by ERP <- filter(ERP$time %% NUMBER == 0) eg ERP <- filter(ERP %% 10 == 0) will take you to a much lower sampling rather. 
+
+```{r}
+average_by_electrode <- function(ERPdata) {
+
+ebe <- ggplot(ERPdata, aes(time, amplitude.mean, colour = condition)) +
+  #stat_summary(fun.y = mean, geom = "line", size = 0.8, na.rm = TRUE) +
+  geom_smooth() +
+  labs(x = "Time (ms)",y = expression(paste("Amplitude (",mu,"V)")), colour = "") +
+  theme_minimal() +
+  ylim(c(-2, 2)) +
+  geom_vline(xintercept = 0, linetype = "dashed" ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_colour_manual(values = ERP_col) +
+  facet_wrap(vars(electrode))
+print(ebe) }
+
+average_all_electrodes <- function(ERPdata) {
+eae <- ggplot(ERPdata, aes(time, amplitude.mean, colour = condition)) +
+  #stat_summary(fun.y = mean, geom = "line", size = 0.8, na.rm = TRUE) +
+  geom_smooth() +
+  labs(x = "Time (ms)", y = expression(paste("Amplitude (",mu,"V)")),colour = "") +
+  theme_minimal() +
+  ylim(c(-2, 2)) +
+  scale_colour_manual(values = ERP_col) +
+  geom_vline(xintercept = 0, linetype = "dashed" ) +
+  geom_hline(yintercept = 0, linetype = "dashed") 
+print(eae) }
+
+grand_average_electrode <- function(TP) {
+  
+ERPdata <- filter(ERP, electrode == "C3" & condition == "difference" & time <= TP)
+gap <- ggplot(ERPdata, aes(time, amplitude.mean, colour = condition)) +
+  #stat_summary(fun.y = mean, geom = "line", size = 0.8, na.rm = TRUE) +
+  geom_smooth() +
+  labs(x = "Time (ms)",y = expression(paste("Amplitude (",mu,"V)")), colour = "") +
+  theme_minimal() +
+  ylim(c(-2, 2)) +
+  xlim(c(-100, 500)) +
+  geom_vline(xintercept = 0, linetype = "dashed" ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_colour_manual(values = ERP_col) 
+ggsave(paste0("./grand_avg/", TP+300, ".png"), gap, height = 6, width = 8, dpi = 100) }
+
+difference_by_electrode <- function(DiffWaveData) {
+  
+dbe <- ggplot(DiffWaveData, aes(time, amplitude.mean)) +
+  #stat_summary(fun.y = mean, geom = "line", size = 0.8, na.rm = TRUE) +
+  geom_smooth() +
+  labs(x = "Time (ms)",y = expression(paste("Amplitude (",mu,"V)")),colour = "") +
+  theme_minimal() +
+  ylim(c(-2, 2)) +
+  geom_vline(xintercept = 0, linetype = "dashed" ) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  facet_wrap(vars(electrode))
+
+print(dbe) }
+```
+
+create gifs from your plots.
+
+```{r, eval = FALSE, include = FALSE}
+c <- seq(from = -95, to = 500, by = 5)
+lapply(c, FUN = grand_average_electrode)
+list.files(path = "./grand_avg/", pattern = "*.png", full.names = T) %>% 
+  map(image_read) %>% 
+  image_join() %>% 
+  image_animate(fps = 20, loop = 1) %>% 
+  image_write("./gavg_C3d.gif") 
+```
+
+some example plots for different scalp planes
+
+```{r}
+average_by_electrode(ERP_C)
+average_all_electrodes(ERP_C)
+difference_by_electrode(ERP_Cdiff)
+```
+
+```{r}
+average_by_electrode(ERP_FC)
+average_all_electrodes(ERP_FC)
+difference_by_electrode(ERP_FCdiff)
+```
+
+```{r}
+average_by_electrode(ERP_AF)
+average_all_electrodes(ERP_AF)
+difference_by_electrode(ERP_AFdiff)
+```
+
+plotting interpolation scalp maps. change gridRes (grid resolution) if needed
+
+```{r include=FALSE}
+TP <- 250
+
+int_scalp_plot <- function(TP, cond = "target") {
+singleTimepoint <- filter(ERP_SM, time == TP & condition == cond)
+gridRes <- 124
+
+tmpTopo <- with(singleTimepoint, interp(x = x, y = y, z = amplitude.mean, xo = seq(min(x)*2, max(x)*2, length = gridRes), yo = seq(min(y)*2, max(y)*2, length = gridRes), linear = FALSE, extrap = TRUE, duplicate = TRUE))
+
+interpTopo <- data.frame(x = tmpTopo$x, tmpTopo$z)
+names(interpTopo)[1:length(tmpTopo$y)+1] <- tmpTopo$y
+interpTopo <- gather(interpTopo, key = y, value = amplitude.mean, -x, convert = TRUE)
+interpTopo$incircle <- sqrt(interpTopo$x^2 + interpTopo$y^2) < .7 
+interpTopo <- interpTopo[interpTopo$incircle,] 
+maskRing <- circleFun(diameter = 1.42) 
+
+ScalpPlotT <- ggplot(interpTopo, aes(x = x, y = y, fill = amplitude.mean)) +
+  geom_raster() +
+  stat_contour(aes(z = amplitude.mean, linetype = ..level..<0), colour = "black", size = 0.8, show.legend = FALSE) +
+  theme_topo() +
+  scale_fill_viridis(option = "plasma", limits = c(-2,2) ,guide = "colourbar", oob = squish) + 
+  geom_path(data = maskRing, aes(x, y, z = NULL, fill =NULL), colour = "white", size = 6) +
+  geom_point(data = singleTimepoint, aes(x, y), size = 1) +
+  geom_path(data = headShape, aes(x, y, z = NULL, fill = NULL), size = 1.5) +
+  geom_path(data = nose, aes(x, y, z = NULL, fill = NULL), size = 1.5) +
+  labs(title = paste0(TP, " ms"), fill = expression(paste("(",mu,"V)"))) +
+  coord_equal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 10)) +
+  facet_wrap(vars(condition))
+return(ScalpPlotT) }
+
+################ NEW FUNCTION #################
+
+compare_scalps_int <- function(TP) {
+
+target_map <- int_scalp_plot(TP) 
+control_map <- int_scalp_plot(TP, "control")
+final_plot <- plot_grid(target_map, control_map)
+ggsave(paste0("./pictures/", TP+100, ".png"), final_plot, width = 8, height = 6, dpi = 100)
+#return(plot_grid(target_map, control_map)) 
+}
+```
+
+gifs of scalp maps
+
+```{r, eval=FALSE, include=FALSE}
+vec.seq <- seq(from = 0, to = 500, by = 5)
+lapply(vec.seq, FUN = compare_scalps_int)
+
+list.files(path = "./pictures/", pattern = "*.png", full.names = T) %>% 
+  map(image_read) %>% 
+  image_join() %>% 
+  image_animate(fps = 20, loop = 0) %>% 
+  image_write("./scalp_map.gif") 
+```
+
+gam scalp plots
+
+```{r, eval=FALSE}
+gam_scalp_plot <- function(TP, cond = "target") {
+
+singleTimepoint <- filter(ERP_SM, time == TP & condition == cond)
+gridRes = 64
+
+splineSmooth <- gam(amplitude.mean ~ s(x, y, bs = 'ts'),
+                    data = singleTimepoint)
+
+GAMtopo <- data.frame(expand.grid(x = seq(min(singleTimepoint$x)*2, max(singleTimepoint$x)*2, length = gridRes), y = seq(min(singleTimepoint$y)*2, max(singleTimepoint$y)*2, length = gridRes)))
+
+GAMtopo$amplitude.mean <- predict(splineSmooth, GAMtopo, type = "response")
+
+GAMtopo$incircle <- (GAMtopo$x)^2 + (GAMtopo$y)^2 < .7^2 # mark
+maskRing <- circleFun(diameter = 1.42)
+GAMplot <- ggplot(GAMtopo[GAMtopo$incircle,], aes(x, y, fill = amplitude.mean)) +
+  geom_raster() +
+  stat_contour(aes(z = amplitude.mean, linetype = ..level..<0), size = 0.8, show.legend = FALSE) +
+  theme_topo()+
+  scale_fill_viridis(option = "plasma", limits = c(-2,2) ,guide = "colourbar", oob = squish) + 
+  geom_path(data = maskRing, aes(x, y, z = NULL, fill =NULL),colour = "white", size = 6) +
+  geom_point(data = singleTimepoint, aes(x,y,fill = NULL)) +
+  geom_path(data = nose, aes(x, y, z = NULL, fill = NULL), size = 1.5) +
+  geom_path(data = headShape, aes(x,y,z = NULL,fill = NULL), size = 1.5) +
+  labs(title = paste0(TP, " ms"), fill = expression(paste("(",mu,"V)"))) +
+  theme(plot.title = element_text(hjust = 0.5, size = 10)) +
+  coord_quickmap() 
+
+return(GAMplot) }
+
+compare_scalps_gam <- function(TP) {
+
+target_map <- gam_scalp_plot(TP) 
+control_map <- gam_scalp_plot(TP, "control")
+return(plot_grid(target_map, control_map)) }
+
+vec.seq <- seq(from = 200, to = 400, by = 100)
+lapply(vec.seq, FUN = compare_scalps_gam)
+```
+
+gam scalp plots gifts
+
+```{r, eval=FALSE, include=FALSE}
+list.files(path = "./pictures/", pattern = "*.png", full.names = T) %>% 
+  map(image_read) %>% # reads each path file
+  image_join() %>% # joins image
+  image_animate(fps = 20, loop = 0) %>% # animates, can opt for number of loops
+  image_write("./scalp_target.gif") # write to current dir
+```
